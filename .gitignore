@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv*/
+.venv/
+
+# Go
+keep
+*.exe
+go.sum
+
+# Generated (rebuild from .proto)
+keep.pb.go
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
