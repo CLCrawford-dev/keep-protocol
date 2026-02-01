@@ -1,10 +1,10 @@
 # keep-protocol
 
-Lightweight TCP + Protobuf message relay with ed25519 signing. No signature, no response.
-
-## What It Does
-
-Keep is a cryptographic gatekeeper over raw TCP. Clients send protobuf-encoded `Packet` messages to port 9009. If the packet carries a valid ed25519 signature, the server processes it and replies. If not, the packet is logged and silently dropped — the sender gets nothing back.
+Keep is the quiet pipe agents whisper through.
+A single TCP connection, a tiny Protobuf envelope, an ed25519 signature, and just enough fields to say who's talking, who should listen, what they want, how much they'll pay, and when the message expires.
+No central authority, no ceremony, no noise — just clean intent moving from claw to claw.
+Unsigned packets vanish without a trace.
+Signed ones get heard, parsed, and answered with a single word: *done*.
 
 ## Signing Protocol
 
