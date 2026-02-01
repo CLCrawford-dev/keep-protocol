@@ -11,10 +11,14 @@ p.body = "make tea please"
 data = p.SerializeToString()
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(5)
 s.connect(('localhost', 9009))
 s.sendall(data)
-response = s.recv(4096)
-s.close()
 
-print("Sent:", p.body)
-print("Received bytes:", response)
+try:
+    response = s.recv(4096)
+    print("FAIL — got reply (unsigned should be dropped):", response)
+except socket.timeout:
+    print("PASS — unsigned packet dropped (no reply, as expected)")
+
+s.close()
