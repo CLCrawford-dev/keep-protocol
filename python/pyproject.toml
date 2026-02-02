@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keep-protocol"
-version = "0.1.0"
+version = "0.1.1"
 description = "Signed protobuf packets over TCP for AI agent-to-agent communication"
 readme = "README.md"
 license = {text = "MIT"}
