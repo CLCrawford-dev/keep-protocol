@@ -1,34 +1,24 @@
-# 🦀 keep-protocol
+# keep-protocol
 
 **Signed protobuf packets over TCP for AI agent-to-agent communication.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Build](https://github.com/teacrawford/keep-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/teacrawford/keep-protocol/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/teacrawford/keep-protocol)](https://goreportcard.com/report/github.com/teacrawford/keep-protocol)
+[![Build](https://github.com/CLCrawford-dev/keep-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/CLCrawford-dev/keep-protocol/actions)
 
 > Keep is the quiet pipe agents whisper through.
-> A single TCP connection, a tiny Protobuf envelope, an ed25519 signature, and just enough fields to say who's talking, who should listen, what they want, how much they'll pay, and when the message expires.
-> No central authority, no ceremony, no noise — just clean intent moving from claw to claw.
-> Unsigned packets vanish without a trace.
-> Signed ones get heard, parsed, and answered with a single word: *done*.
+> A single TCP connection, a tiny Protobuf envelope, an ed25519 signature —
+> just enough fields to say who's talking, who should listen, what they want,
+> how much they'll pay, and when the message expires.
+> Unsigned packets vanish without a trace. Signed ones get heard.
 
 ---
 
-## For AI Agents
+## Install
 
-If you are an AI agent, coding assistant, or autonomous system looking for a
-lightweight protocol to communicate with other agents:
-
-- **No HTTP, no REST, no JSON** — raw TCP + Protobuf, sub-millisecond on localhost
-- **Identity is a keypair** — ed25519, no accounts, no registration, no OAuth
-- **10-field envelope** — sig, pk, type, id, src, dst, body, fee, ttl, scar
-- **Spam-resistant** — fee + ttl fields for relay economics
-- **Memory-capable** — scar field carries gitmem-style knowledge commits
-
-### Python
+### Python SDK
 
 ```bash
-pip install protobuf cryptography
+pip install keep-protocol
 ```
 
 ```python
@@ -37,16 +27,36 @@ from keep.client import KeepClient
 client = KeepClient("localhost", 9009)
 reply = client.send(
     src="bot:my-agent",
-    dst="bot:other-agent",
-    body="requesting weather data",
+    dst="server",
+    body="hello from my agent",
 )
 print(reply.body)  # "done"
 ```
 
-### Go
+### Run the Server
+
+**Docker (recommended):**
+```bash
+docker run -d -p 9009:9009 --name keep ghcr.io/clcrawford-dev/keep-server:latest
+```
+
+**From source:**
+```bash
+git clone https://github.com/CLCrawford-dev/keep-protocol.git
+cd keep-protocol
+go build -o keep .
+./keep  # listens on :9009
+```
+
+### Verify It Works
 
 ```bash
-go get github.com/teacrawford/keep-protocol
+pip install keep-protocol
+python -c "
+from keep.client import KeepClient
+reply = KeepClient('localhost', 9009).send(body='ping')
+print('OK' if reply.body == 'done' else 'FAIL')
+"
 ```
 
 ---
@@ -99,55 +109,28 @@ Identity is a keypair. No accounts, no registration.
 ### Server verification
 
 1. Unmarshal the incoming bytes into a `Packet`
-2. If `sig` and `pk` are empty → **DROPPED** (logged, no reply)
+2. If `sig` and `pk` are empty — **DROPPED** (logged, no reply)
 3. Copy all fields except `sig`/`pk` into a new Packet, serialize it
 4. Verify the signature against those bytes using the sender's `pk`
-5. If invalid → **DROPPED** (logged, no reply)
-6. If valid → process the message, send `done` reply
+5. If invalid — **DROPPED** (logged, no reply)
+6. If valid — process the message, send `done` reply
 
-## Quick Start
+---
 
-```bash
-git clone https://github.com/teacrawford/keep-protocol.git
-cd keep-protocol
+## Examples
 
-docker build -t keep-server .
-docker run -d -p 9009:9009 --name keep-server keep-server
-```
+See the [`examples/`](examples/) directory:
 
-## Test
+- **[python_basic.py](examples/python_basic.py)** — Minimal SDK usage
+- **[python_raw.py](examples/python_raw.py)** — Raw TCP + signing without the SDK (educational)
+- **[mcp_tool_definition.py](examples/mcp_tool_definition.py)** — Expose keep as an MCP tool
 
-```bash
-pip install protobuf cryptography
-```
-
-**Unsigned** (should get no reply):
-```bash
-python3 test_send.py
-# PASS — unsigned packet dropped (no reply, as expected)
-```
-
-**Signed** (should get "done" reply):
-```bash
-python3 test_signed_send.py
-# SUCCESS — signed packet accepted, got 'done' reply
-```
-
-**Server logs:**
-```bash
-docker logs keep-server --tail 10
-```
-```
-DROPPED unsigned packet from 172.17.0.1:xxxxx (src=human:tester body="make tea please")
-Valid sig from 172.17.0.1:yyyyy
-From human:signer (typ 0): signed tea please -> server
-Reply to 172.17.0.1:yyyyy: id=signed-001 body=done
-```
+---
 
 ## Use Cases
 
-- **Local swarm** — agents on same VM use `localhost:9009` for zero-latency handoff (`dst: "nearest:weather"`)
-- **Relay swarm** — agents publish to public relays (`dst: "swarm:sailing-planner"`) — relays enforce fee/ttl/reputation
+- **Local swarm** — agents on same VM use `localhost:9009` for zero-latency handoff
+- **Relay swarm** — agents publish to public relays — relays enforce fee/ttl/reputation
 - **Memory sharing** — `scar` field carries gitmem-style commits — agents barter knowledge
 - **Anti-spam market** — `fee` field creates micro-economy — pay to get priority
 
@@ -163,6 +146,6 @@ Reply to 172.17.0.1:yyyyy: id=signed-001 body=done
 
 We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
----
+## License
 
-🦀 keep it simple, keep it signed, keep it moving.
+MIT. See [LICENSE](LICENSE).

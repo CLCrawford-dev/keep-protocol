@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Raw example: send a signed packet without the SDK (stdlib + protobuf + cryptography only).
+
+This is useful for agents that cannot install packages or need to understand
+the signing protocol at the byte level.
+"""
+
+import socket
+import sys
+
+sys.path.insert(0, "..")
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+import keep_pb2
+
+# 1. Generate ephemeral ed25519 keypair
+private_key = Ed25519PrivateKey.generate()
+pk_bytes = private_key.public_key().public_bytes_raw()
+
+# 2. Build packet WITHOUT sig/pk
+p = keep_pb2.Packet()
+p.typ = 0           # ask
+p.id = "raw-001"
+p.src = "bot:raw-example"
+p.dst = "server"
+p.body = "hello from raw example"
+
+# 3. Serialize unsigned packet = sign payload
+sign_payload = p.SerializeToString()
+
+# 4. Sign
+sig_bytes = private_key.sign(sign_payload)
+
+# 5. Set sig and pk, re-serialize
+p.sig = sig_bytes
+p.pk = pk_bytes
+wire_data = p.SerializeToString()
+
+# 6. Send over TCP
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(10)
+s.connect(("localhost", 9009))
+s.sendall(wire_data)
+
+# 7. Read reply
+reply_data = s.recv(4096)
+s.close()
+
+resp = keep_pb2.Packet()
+resp.ParseFromString(reply_data)
+print(f"Reply: id={resp.id} body={resp.body}")

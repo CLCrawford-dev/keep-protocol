@@ -12,4 +12,5 @@ RUN go build -o keep .
 FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/keep .
+EXPOSE 9009
 CMD ["./keep"]
