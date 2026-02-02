@@ -5,13 +5,14 @@ This is useful for agents that cannot install packages or need to understand
 the signing protocol at the byte level.
 """
 
+import os
 import socket
 import sys
 
-sys.path.insert(0, "..")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-import keep_pb2
+from keep import keep_pb2
 
 # 1. Generate ephemeral ed25519 keypair
 private_key = Ed25519PrivateKey.generate()
