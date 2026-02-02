@@ -3,10 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/keep-server
+
 jobs:
+  # ── Build & Test ──────────────────────────────────────────
+
   build-go:
     name: Build Go Server
     runs-on: ubuntu-latest
@@ -26,6 +33,37 @@ jobs:
   test-python:
     name: Test Python SDK
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install SDK
+        run: pip install ./python
+
+      - name: Verify import
+        run: python -c "from keep.client import KeepClient; import keep; print(f'keep-protocol {keep.__version__} OK')"
+
+      - name: Verify protobuf codegen
+        run: python -c "from keep import keep_pb2; p = keep_pb2.Packet(); p.body = 'test'; print('protobuf OK')"
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t keep-server .
+
+  build-sdist:
+    name: Build Python Package
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -33,19 +71,82 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install protobuf cryptography
+      - name: Install build tools
+        run: pip install build
 
-      - name: Verify SDK import
+      - name: Copy README into package dir
+        run: cp README.md python/README.md
+
+      - name: Build sdist and wheel
+        run: python -m build python/
+
+      - name: Verify package contents
         run: |
-          cd python
-          python -c "from keep.client import KeepClient; print('SDK import OK')"
+          pip install python/dist/*.whl
+          python -c "from keep.client import KeepClient; print('wheel install OK')"
 
-  docker:
-    name: Docker Build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: python/dist/
+
+  # ── Publish (tag push only) ──────────────────────────────
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build-go, test-python, build-docker, build-sdist]
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t keep-server .
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Copy README into package dir
+        run: cp README.md python/README.md
+
+      - name: Build
+        run: python -m build python/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist/
+
+  publish-ghcr:
+    name: Publish to ghcr.io
+    needs: [build-go, test-python, build-docker, build-sdist]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

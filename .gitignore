@@ -13,6 +13,7 @@ keep
 python/dist/
 python/*.egg-info/
 python/build/
+python/README.md
 
 # OS
 .DS_Store
