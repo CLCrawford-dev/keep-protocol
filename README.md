@@ -15,25 +15,7 @@
 
 ## Install
 
-### Python SDK
-
-```bash
-pip install keep-protocol
-```
-
-```python
-from keep.client import KeepClient
-
-client = KeepClient("localhost", 9009)
-reply = client.send(
-    src="bot:my-agent",
-    dst="server",
-    body="hello from my agent",
-)
-print(reply.body)  # "done"
-```
-
-### Run the Server
+### 1. Start the Server
 
 **Docker (recommended):**
 ```bash
@@ -48,15 +30,34 @@ go build -o keep .
 ./keep  # listens on :9009
 ```
 
+### 2. Install the Python SDK
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install keep-protocol
+```
+
+### 3. Send a Packet
+
+```python
+from keep.client import KeepClient
+
+client = KeepClient("localhost", 9009)
+reply = client.send(
+    src="bot:my-agent",
+    dst="server",
+    body="hello from my agent",
+)
+print(reply.body)  # "done"
+```
+
 ### Verify It Works
 
 ```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install keep-protocol
-python -c "
-from keep.client import KeepClient
-reply = KeepClient('localhost', 9009).send(body='ping')
-print('OK' if reply.body == 'done' else 'FAIL')
-"
+python -c "from keep.client import KeepClient; reply = KeepClient('localhost', 9009).send(body='ping'); print('OK' if reply.body == 'done' else 'FAIL')"
 ```
 
 ---
