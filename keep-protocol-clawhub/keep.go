@@ -19,9 +19,38 @@ import (
 const MaxPacketSize = 65536
 
 var (
-	connections = make(map[string]net.Conn)
-	connMu      sync.Mutex
+	agents  = make(map[string]net.Conn) // "bot:weather" -> conn
+	connSrc = make(map[net.Conn]string) // conn -> "bot:weather" (reverse)
+	routeMu sync.RWMutex
 )
+
+// registerConn registers a connection under the given agent identity.
+// Last-write-wins: if the identity is already registered, the old connection is closed.
+func registerConn(identity string, conn net.Conn) {
+	routeMu.Lock()
+	defer routeMu.Unlock()
+
+	if old, exists := agents[identity]; exists && old != conn {
+		log.Printf("Identity %q re-registered, closing old connection", identity)
+		// Clean up reverse map for old connection
+		delete(connSrc, old)
+		old.Close()
+	}
+	agents[identity] = conn
+	connSrc[conn] = identity
+}
+
+// unregisterConn removes a connection from the routing table.
+func unregisterConn(conn net.Conn) {
+	routeMu.Lock()
+	defer routeMu.Unlock()
+
+	if identity, exists := connSrc[conn]; exists {
+		delete(agents, identity)
+		delete(connSrc, conn)
+		log.Printf("Unregistered %q", identity)
+	}
+}
 
 // readPacket reads a length-prefixed protobuf Packet from conn.
 // Wire format: [4 bytes big-endian uint32 length][length bytes protobuf].
@@ -81,15 +110,16 @@ func heartbeat() {
 			Typ: 2,
 			Src: "server",
 		}
-		connMu.Lock()
-		for addr, conn := range connections {
+		routeMu.Lock()
+		for identity, conn := range agents {
 			if err := writePacket(conn, hb); err != nil {
-				log.Printf("Heartbeat fail %s: %v", addr, err)
+				log.Printf("Heartbeat fail %s: %v", identity, err)
+				delete(connSrc, conn)
+				delete(agents, identity)
 				conn.Close()
-				delete(connections, addr)
 			}
 		}
-		connMu.Unlock()
+		routeMu.Unlock()
 	}
 }
 
@@ -133,14 +163,7 @@ func verifySig(p *Packet) bool {
 func handleConnection(c net.Conn) {
 	defer c.Close()
 	addr := c.RemoteAddr().String()
-	connMu.Lock()
-	connections[addr] = c
-	connMu.Unlock()
-	defer func() {
-		connMu.Lock()
-		delete(connections, addr)
-		connMu.Unlock()
-	}()
+	defer unregisterConn(c)
 
 	for {
 		p, err := readPacket(c)
@@ -162,20 +185,66 @@ func handleConnection(c net.Conn) {
 			continue
 		}
 
-		log.Printf("Valid sig from %s", addr)
+		// Register agent identity from first valid packet's src field
+		if p.Src != "" {
+			registerConn(p.Src, c)
+		}
+
 		log.Printf("From %s (typ %d): %s -> %s", p.Src, p.Typ, p.Body, p.Dst)
 
-		resp := &Packet{
-			Id:   p.Id,
-			Typ:  1,
-			Src:  "server",
-			Body: "done",
+		// Route based on dst field
+		switch {
+		case p.Dst == "server" || p.Dst == "":
+			// Backward compatible: reply "done"
+			resp := &Packet{
+				Id:   p.Id,
+				Typ:  1,
+				Src:  "server",
+				Body: "done",
+			}
+			if err := writePacket(c, resp); err != nil {
+				log.Printf("Write error to %s: %v", addr, err)
+				return
+			}
+
+		default:
+			// Forward to registered agent
+			routeMu.RLock()
+			target, exists := agents[p.Dst]
+			routeMu.RUnlock()
+
+			if !exists {
+				resp := &Packet{
+					Id:   p.Id,
+					Typ:  1,
+					Src:  "server",
+					Body: "error:offline",
+				}
+				if err := writePacket(c, resp); err != nil {
+					log.Printf("Write error to %s: %v", addr, err)
+					return
+				}
+				log.Printf("Route %s -> %s: offline", p.Src, p.Dst)
+				continue
+			}
+
+			// Forward original signed packet (preserving signature)
+			if err := writePacket(target, p); err != nil {
+				resp := &Packet{
+					Id:   p.Id,
+					Typ:  1,
+					Src:  "server",
+					Body: "error:delivery_failed",
+				}
+				if writeErr := writePacket(c, resp); writeErr != nil {
+					log.Printf("Write error to %s: %v", addr, writeErr)
+					return
+				}
+				log.Printf("Route %s -> %s: delivery failed: %v", p.Src, p.Dst, err)
+				continue
+			}
+			log.Printf("Routed %s -> %s", p.Src, p.Dst)
 		}
-		if err := writePacket(c, resp); err != nil {
-			log.Printf("Write error to %s: %v", addr, err)
-			return
-		}
-		log.Printf("Reply to %s: id=%s body=%s", addr, resp.Id, resp.Body)
 	}
 }
 
