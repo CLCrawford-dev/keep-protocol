@@ -1,8 +1,12 @@
 """Keep protocol client -- sign and send packets over TCP."""
 
 import json
+import logging
+import shutil
 import socket
 import struct
+import subprocess
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +15,8 @@ from typing import Callable, Optional
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from keep import keep_pb2
+
+logger = logging.getLogger(__name__)
 
 MAX_PACKET_SIZE = 65536
 
@@ -43,6 +49,190 @@ class KeepClient:
         self._public_key = self._private_key.public_key()
         self._pk_bytes = self._public_key.public_bytes_raw()
         self._sock: Optional[socket.socket] = None
+
+    # -- Server bootstrap --
+
+    @staticmethod
+    def _is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+        """Check if a TCP port is accepting connections."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            result = sock.connect_ex((host, port))
+            return result == 0
+        finally:
+            sock.close()
+
+    @staticmethod
+    def _has_docker() -> bool:
+        """Check if Docker is available."""
+        return shutil.which("docker") is not None
+
+    @staticmethod
+    def _has_go() -> bool:
+        """Check if Go is available."""
+        return shutil.which("go") is not None
+
+    @classmethod
+    def ensure_server(
+        cls,
+        host: str = "localhost",
+        port: int = 9009,
+        timeout: float = 30.0,
+        docker_image: str = "ghcr.io/clcrawford-dev/keep-server:latest",
+    ) -> bool:
+        """Ensure a keep-protocol server is running, starting one if needed.
+
+        Checks if the server is reachable. If not, attempts to start one using:
+        1. Docker (preferred): pulls and runs the multi-arch image
+        2. Go fallback: installs and runs via `go install`
+
+        Args:
+            host: Server hostname (default: localhost).
+            port: Server port (default: 9009).
+            timeout: Max seconds to wait for server to become ready.
+            docker_image: Docker image to use.
+
+        Returns:
+            True if server is now reachable, False otherwise.
+
+        Example:
+            >>> from keep import KeepClient
+            >>> if KeepClient.ensure_server():
+            ...     client = KeepClient()
+            ...     client.connect()
+        """
+        # Check if already running
+        if cls._is_port_open(host, port):
+            logger.info("keep-server already running on %s:%d", host, port)
+            return True
+
+        logger.info("keep-server not running on %s:%d, attempting to start...", host, port)
+
+        # Try Docker first
+        if cls._has_docker():
+            logger.info("Docker detected, attempting to start container...")
+            try:
+                # Check if container already exists but stopped
+                result = subprocess.run(
+                    ["docker", "ps", "-a", "--filter", f"publish={port}", "--format", "{{.ID}}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                existing_containers = result.stdout.strip().split('\n')
+                existing_containers = [c for c in existing_containers if c]
+
+                # Remove existing containers on this port
+                for container_id in existing_containers:
+                    subprocess.run(
+                        ["docker", "rm", "-f", container_id],
+                        capture_output=True,
+                        timeout=10,
+                    )
+
+                # Start new container
+                result = subprocess.run(
+                    [
+                        "docker", "run", "-d",
+                        "--name", f"keep-server-{port}",
+                        "-p", f"{port}:9009",
+                        docker_image,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,  # Image pull may take time
+                )
+
+                if result.returncode == 0:
+                    container_id = result.stdout.strip()[:12]
+                    logger.info("Started Docker container: %s", container_id)
+
+                    # Wait for server to be ready
+                    if cls._wait_for_server(host, port, timeout):
+                        logger.info("keep-server ready via Docker on %s:%d", host, port)
+                        return True
+                    else:
+                        logger.warning("Docker container started but server not responding")
+                else:
+                    logger.warning("Docker run failed: %s", result.stderr.strip())
+
+            except subprocess.TimeoutExpired:
+                logger.warning("Docker command timed out")
+            except Exception as e:
+                logger.warning("Docker start failed: %s", e)
+
+        # Fall back to Go
+        if cls._has_go():
+            logger.info("Trying Go fallback...")
+            try:
+                # Install the server binary
+                result = subprocess.run(
+                    ["go", "install", "github.com/clcrawford-dev/keep-server@latest"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+
+                if result.returncode != 0:
+                    logger.warning("go install failed: %s", result.stderr.strip())
+                else:
+                    # Find the installed binary
+                    go_bin = shutil.which("keep-server")
+                    if not go_bin:
+                        # Check GOPATH/bin
+                        gopath_result = subprocess.run(
+                            ["go", "env", "GOPATH"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if gopath_result.returncode == 0:
+                            gopath = gopath_result.stdout.strip()
+                            go_bin = Path(gopath) / "bin" / "keep-server"
+                            if not go_bin.exists():
+                                go_bin = None
+
+                    if go_bin:
+                        # Start server in background
+                        subprocess.Popen(
+                            [str(go_bin)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                        logger.info("Started keep-server via Go")
+
+                        if cls._wait_for_server(host, port, timeout):
+                            logger.info("keep-server ready via Go on %s:%d", host, port)
+                            return True
+                    else:
+                        logger.warning("keep-server binary not found after go install")
+
+            except subprocess.TimeoutExpired:
+                logger.warning("Go install timed out")
+            except Exception as e:
+                logger.warning("Go start failed: %s", e)
+
+        # Both methods failed
+        logger.error(
+            "Could not start keep-server. Install Docker or Go, or run manually:\n"
+            "  docker run -d -p 9009:9009 %s\n"
+            "  OR\n"
+            "  go install github.com/clcrawford-dev/keep-server@latest && keep-server",
+            docker_image,
+        )
+        return False
+
+    @classmethod
+    def _wait_for_server(cls, host: str, port: int, timeout: float) -> bool:
+        """Wait for the server to become reachable."""
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            if cls._is_port_open(host, port):
+                return True
+            time.sleep(0.5)
+        return False
 
     # -- Connection management --
 
