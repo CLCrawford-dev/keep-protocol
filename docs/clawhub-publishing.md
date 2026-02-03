@@ -79,19 +79,30 @@ Allowed frontmatter keys: `name`, `description`, `license`, `allowed-tools`, `me
 
 ## Full Update Checklist
 
-**Order matters!** Tag triggers CI which publishes Docker/PyPI. ClawHub comes last so users have working artifacts.
+> **⛔ STOP: DO NOT publish to ClawHub until CI is GREEN.**
+>
+> Publishing before CI passes exposes users to broken artifacts.
+> This happened on v1.0.2/v0.3.0 — don't repeat it.
 
 ```
-☐ Code changes committed and pushed to CLCrawford-dev/keep-protocol
-☐ SKILL.md updated if description/tags/instructions changed
-☐ Create and push version tag:
-    git tag vX.Y.Z
-    git push origin vX.Y.Z
-☐ Wait for CI to complete (https://github.com/CLCrawford-dev/keep-protocol/actions)
-    - Docker image published to ghcr.io
-    - Python package published to PyPI
-☐ ClawHub publish with matching version
-☐ Verified on clawhub.ai/skills/keep-protocol
+☐ 1. Code changes committed and pushed to CLCrawford-dev/keep-protocol
+☐ 2. SKILL.md updated if description/tags/instructions changed
+☐ 3. Create and push version tag:
+       git tag vX.Y.Z
+       git push origin vX.Y.Z
+☐ 4. WAIT for CI to complete — ALL JOBS MUST BE GREEN
+       https://github.com/CLCrawford-dev/keep-protocol/actions
+       ☐ build-go ✓
+       ☐ test-python ✓
+       ☐ build-docker ✓
+       ☐ build-sdist ✓
+       ☐ publish-pypi ✓
+       ☐ publish-ghcr ✓
+☐ 5. VERIFY artifacts exist:
+       - ghcr.io: docker pull ghcr.io/clcrawford-dev/keep-server:X.Y.Z
+       - PyPI: pip install keep-protocol==X.Y.Z
+☐ 6. ONLY THEN publish to ClawHub with matching version
+☐ 7. Verify on clawhub.ai/skills/keep-protocol
 ```
 
 ## Push to Both Repos
@@ -109,7 +120,7 @@ git push nteg main     # nTEG-dev (mirror/fork)
 |---------|------------|---------|---------|
 | 1.0.0   | 2026-02-02 | v0.1.0  | Initial publish (missing description/tags) |
 | 1.0.1   | 2026-02-02 | v0.1.1  | Added YAML frontmatter: description, 🦀 emoji, discovery tags |
-| 1.0.2   | 2026-02-03 | v0.3.0  | Discovery (info/agents/stats), endpoint caching, scar logging, agent-to-agent routing, persistent connections |
+| 1.0.2   | 2026-02-03 | v0.3.1  | Discovery (info/agents/stats), endpoint caching, scar logging, agent-to-agent routing, persistent connections (v0.3.0 failed CI) |
 
 ## Troubleshooting
 
