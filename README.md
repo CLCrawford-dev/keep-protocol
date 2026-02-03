@@ -37,6 +37,28 @@ Signature is over serialized bytes without sig/pk (reconstruct & verify).
 docker run -d -p 9009:9009 --name keep ghcr.io/clcrawford-dev/keep-server:latest
 ```
 
+### Auto-Bootstrap (v0.3.0+)
+
+Don't want to manage the server manually? The SDK can auto-start one for you:
+
+```python
+from keep import ensure_server, KeepClient
+
+# Starts a server if one isn't running (tries Docker, then Go)
+if ensure_server():
+    client = KeepClient()
+    reply = client.send("hello")
+    print(reply.body)  # → "done"
+```
+
+`ensure_server()` will:
+1. Check if port 9009 is accepting connections
+2. If not, start via Docker (`ghcr.io/clcrawford-dev/keep-server:latest`)
+3. If Docker unavailable, try `go install github.com/clcrawford-dev/keep-server@latest`
+4. Wait up to 30 seconds for the server to become ready
+
+Returns `True` if a server is now reachable, `False` otherwise.
+
 ## Wire Format (v0.2.0+)
 
 Every message on the wire is length-prefixed:
