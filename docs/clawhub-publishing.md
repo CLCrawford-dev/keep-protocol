@@ -101,8 +101,23 @@ Allowed frontmatter keys: `name`, `description`, `license`, `allowed-tools`, `me
 ☐ 5. VERIFY artifacts exist:
        - ghcr.io: docker pull ghcr.io/clcrawford-dev/keep-server:X.Y.Z
        - PyPI: pip install keep-protocol==X.Y.Z
-☐ 6. ONLY THEN publish to ClawHub with matching version
-☐ 7. Verify on clawhub.ai/skills/keep-protocol
+☐ 6. TEST in clean sandbox (what a new user experiences):
+       python3 -m venv /tmp/keep-test-sandbox
+       source /tmp/keep-test-sandbox/bin/activate
+       pip install keep-protocol
+       python3 -c "
+         from keep.client import KeepClient
+         import keep
+         print(f'Version: {keep.__version__}')
+         client = KeepClient('localhost', 9009)
+         info = client.discover('info')
+         print(f'Server: {info}')
+       "
+       # Must see valid version and server response
+       deactivate
+       rm -rf /tmp/keep-test-sandbox
+☐ 7. ONLY THEN publish to ClawHub with matching version
+☐ 8. Verify on clawhub.ai/skills/keep-protocol
 ```
 
 ## Push to Both Repos
