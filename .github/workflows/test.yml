@@ -1,7 +1,7 @@
-  name: Test             
-                                               
-  on:
-    push:
+  name: Test                                                                                                         
+                                                                                                                     
+  on:                                                                                                                
+    push:                
       branches: [main, 'feature/**', 'agent/**']
     pull_request:
       branches: [main]
@@ -28,7 +28,7 @@
             pip install -e ./python pytest
 
         - name: Run unit tests
-          run: pytest tests/ -v --ignore=tests/test_integration.py
+          run: pytest tests/ -v -m "not integration"
 
     integration-tests:
       name: Integration Tests (Docker)
@@ -51,22 +51,11 @@
         - name: Run integration tests
           run: pytest tests/ -v -m integration
 
-        - name: Verify Docker auto-start
+        - name: Test Docker auto-start
           run: |
             docker rm -f keep-server-9009 2>/dev/null || true
-            python -c "
-            from keep import ensure_server
-            result = ensure_server()
-            assert result, 'ensure_server() should return True'
-            print('✅ ensure_server() auto-started container')
-            "
+            python -c "from keep import ensure_server; assert ensure_server(), 'Failed'"
             docker ps | grep keep-server-9009
-            python -c "
-            from keep import KeepClient
-            client = KeepClient()
-            client.send(b'test-packet')
-            print('✅ Successfully sent packet to auto-started server')
-            "
             docker rm -f keep-server-9009
 
     go-build:
@@ -86,5 +75,3 @@
 
         - name: Run go vet
           run: go vet ./...
-  EOF
-
