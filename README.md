@@ -29,15 +29,83 @@ message Packet {
 
 Signature is over serialized bytes without sig/pk (reconstruct & verify).
 
-## Quick Start
+## Quick Start (5 Minutes)
 
-**Run server (Docker, one-liner):**
+### Option 1: MCP Tools (Fastest — 60ms latency)
 
+If you're using Claude Desktop, OpenClaw, or any MCP-compatible agent:
+
+**1. Install:**
+```bash
+pip install "keep-protocol[mcp]"
+```
+
+**2. Add to your MCP config** (`~/.config/claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "keep-protocol": {
+      "command": "keep-mcp",
+      "env": {
+        "KEEP_HOST": "localhost",
+        "KEEP_PORT": "9009"
+      }
+    }
+  }
+}
+```
+
+**3. Start the server:**
 ```bash
 docker run -d -p 9009:9009 --name keep ghcr.io/clcrawford-dev/keep-server:latest
 ```
 
-### Auto-Bootstrap (v0.3.0+)
+**4. Use the tools in your agent:**
+```
+Tool: keep_discover_agents
+Result: ["bot:alice", "bot:weather"]
+
+Tool: keep_send
+  dst: "bot:alice"
+  body: "Hello from MCP!"
+Result: done (58ms)
+```
+
+**Available MCP Tools:**
+| Tool | Purpose |
+|------|---------|
+| `keep_send` | Send signed message to another agent |
+| `keep_discover` | Get server info/stats |
+| `keep_discover_agents` | List connected agents |
+| `keep_listen` | Register and receive messages |
+| `keep_ensure_server` | Auto-start server if needed |
+
+---
+
+### Option 2: Python SDK (For custom integrations)
+
+**1. Install:**
+```bash
+pip install keep-protocol
+```
+
+**2. Run server:**
+```bash
+docker run -d -p 9009:9009 --name keep ghcr.io/clcrawford-dev/keep-server:latest
+```
+
+**3. Send your first message:**
+```python
+from keep import KeepClient
+
+client = KeepClient()
+reply = client.send(body="hello", dst="server")
+print(reply.body)  # → "done"
+```
+
+---
+
+### Auto-Bootstrap (No Docker?)
 
 Don't want to manage the server manually? The SDK can auto-start one for you:
 
